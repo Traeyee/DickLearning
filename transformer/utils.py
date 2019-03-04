@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # /usr/bin/python3
-'''
+"""
 Feb. 2019 by kyubyong park.
 kbpark.linguist@gmail.com.
 https://www.github.com/kyubyong/transformer.
 
 Utility functions
-'''
+"""
 
 import tensorflow as tf
 # from tensorflow.python import pywrap_tensorflow
@@ -18,35 +18,35 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 def calc_num_batches(total_num, batch_size):
-    '''Calculates the number of batches.
+    """Calculates the number of batches.
     total_num: total sample number
     batch_size
 
     Returns
-    number of batches, allowing for remainders.'''
+    number of batches, allowing for remainders."""
     return total_num // batch_size + int(total_num % batch_size != 0)
 
 def convert_idx_to_token_tensor(inputs, idx2token):
-    '''Converts int32 tensor to string tensor.
+    """Converts int32 tensor to string tensor.
     inputs: 1d int32 tensor. indices.
     idx2token: dictionary
 
     Returns
     1d string tensor.
-    '''
+    """
     def my_func(inputs):
         return " ".join(idx2token[elem] for elem in inputs)
 
     return tf.py_func(my_func, [inputs], tf.string)
 
 # # def pad(x, maxlen):
-# #     '''Pads x, list of sequences, and make it as a numpy array.
+# #     """Pads x, list of sequences, and make it as a numpy array.
 # #     x: list of sequences. e.g., [[2, 3, 4], [5, 6, 7, 8, 9], ...]
 # #     maxlen: scalar
 # #
 # #     Returns
 # #     numpy int32 array of (len(x), maxlen)
-# #     '''
+# #     """
 # #     padded = []
 # #     for seq in x:
 # #         seq += [0] * (maxlen - len(seq))
@@ -57,40 +57,44 @@ def convert_idx_to_token_tensor(inputs, idx2token):
 #
 #     return arry
 
+
 def postprocess(hypotheses, idx2token):
-    '''Processes translation outputs.
+    """Processes translation outputs.
     hypotheses: list of encoded predictions
     idx2token: dictionary
 
     Returns
     processed hypotheses
-    '''
+    """
+    logging.info("db2")
     _hypotheses = []
     for h in hypotheses:
         sent = "".join(idx2token[idx] for idx in h)
         sent = sent.split("</s>")[0].strip()
-        sent = sent.replace("▁", " ") # remove bpe symbols
+        sent = sent.replace("▁", " ")  # remove bpe symbols
         _hypotheses.append(sent.strip())
+    logging.info("db4")
     return _hypotheses
 
+
 def save_hparams(hparams, path):
-    '''Saves hparams to path
+    """Saves hparams to path
     hparams: argsparse object.
     path: output directory.
 
     Writes
     hparams as literal dictionary to path.
-    '''
+    """
     if not os.path.exists(path): os.makedirs(path)
     hp = json.dumps(vars(hparams))
     with open(os.path.join(path, "hparams"), 'w') as fout:
         fout.write(hp)
 
 def load_hparams(parser, path):
-    '''Loads hparams and overrides parser
+    """Loads hparams and overrides parser
     parser: argsparse parser
     path: directory or file where hparams are saved
-    '''
+    """
     if not os.path.isdir(path):
         path = os.path.dirname(path)
     d = open(os.path.join(path, "hparams"), 'r').read()
@@ -99,20 +103,20 @@ def load_hparams(parser, path):
         parser.f = v
 
 def save_variable_specs(fpath):
-    '''Saves information about variables such as
+    """Saves information about variables such as
     their name, shape, and total parameter number
     fpath: string. output file path
 
     Writes
     a text file named fpath.
-    '''
+    """
     def _get_size(shp):
-        '''Gets size of tensor shape
+        """Gets size of tensor shape
         shp: TensorShape
 
         Returns
         size
-        '''
+        """
         size = 1
         for d in range(len(shp)):
             size *=shp[d]
@@ -128,8 +132,9 @@ def save_variable_specs(fpath):
         fout.write("\n".join(params))
     logging.info("Variables info has been saved.")
 
-def get_hypotheses(num_batches, num_samples, sess, tensor, dict):
-    '''Gets hypotheses.
+
+def get_hypotheses(num_batches, num_samples, sess, tensor, dictt, use_profile=False, **kwargs):
+    """Gets hypotheses.
     num_batches: scalar.
     num_samples: scalar.
     sess: tensorflow sess object
@@ -138,22 +143,32 @@ def get_hypotheses(num_batches, num_samples, sess, tensor, dict):
 
     Returns
     hypotheses: list of sents
-    '''
+    """
     hypotheses = []
-    for _ in range(num_batches):
-        h = sess.run(tensor)
+    logging.info("db1")
+    for ith_batch in range(num_batches):
+        logging.info("db11")
+        if use_profile:
+            run_metadata = kwargs['run_metadata']
+            h = sess.run(tensor, options=kwargs['options'], run_metadata=run_metadata)
+            kwargs['profiler'].add_step(step=ith_batch, run_meta=run_metadata)
+        else:
+            h = sess.run(tensor)
+        logging.info("db12")
         hypotheses.extend(h.tolist())
-    hypotheses = postprocess(hypotheses, dict)
+    hypotheses = postprocess(hypotheses, dictt)
+    logging.info(hypotheses)
 
     return hypotheses[:num_samples]
 
+
 def calc_bleu(ref, translation):
-    '''Calculates bleu score and appends the report to translation
+    """Calculates bleu score and appends the report to translation
     ref: reference file path
     translation: model output file path
 
     Returns
-    translation that the bleu score is appended to'''
+    translation that the bleu score is appended to"""
     get_bleu_score = "perl multi-bleu.perl {} < {} > {}".format(ref, translation, "temp")
     os.system(get_bleu_score)
     bleu_score_report = open("temp", "r").read()
@@ -165,7 +180,8 @@ def calc_bleu(ref, translation):
         os.system("mv {} {}".format(translation, new_translation))
         os.remove(translation)
 
-    except: pass
+    except:
+        pass
     os.remove("temp")
 
 

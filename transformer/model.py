@@ -7,13 +7,14 @@ https://www.github.com/kyubyong/transformer
 
 Transformer network
 """
-import tensorflow as tf
-
-from data_load import load_vocab
-from modules import get_token_embeddings, ff, positional_encoding, multihead_attention, label_smoothing, noam_scheme
-from utils import convert_idx_to_token_tensor
-from tqdm import tqdm
 import logging
+import tensorflow as tf
+from tqdm import tqdm
+
+# from data_load import load_vocab
+from transformer.modules import get_token_embeddings, ff, positional_encoding, multihead_attention, label_smoothing, noam_scheme
+from transformer.nlptools import Encoder
+from transformer.utils import convert_idx_to_token_tensor
 
 logging.basicConfig(level=logging.INFO)
 
@@ -33,8 +34,11 @@ class Transformer:
     """
     def __init__(self, hp):
         self.hp = hp
-        self.token2idx, self.idx2token = load_vocab(hp.vocab)
-        self.embeddings = get_token_embeddings(self.hp.vocab_size, self.hp.d_model, zero_pad=True)
+        self.vocab_encoder = Encoder(0)
+        # self.token2idx, self.idx2token = load_vocab(hp.vocab)
+        self.token2idx, self.idx2token = self.vocab_encoder.get_index_dict()
+        vocab_size = self.vocab_encoder.get_vocab_size()
+        self.embeddings = get_token_embeddings(vocab_size, self.hp.d_model, zero_pad=True)
 
     def encode(self, xs, training=True):
         """
@@ -162,15 +166,14 @@ class Transformer:
         ys = (decoder_inputs, y, y_seqlen, sents2)
 
         memory, sents1 = self.encode(xs, False)
-
         logging.info("Inference graph is being built. Please be patient.")
         for _ in tqdm(range(self.hp.maxlen2)):
             logits, y_hat, y, sents2 = self.decode(ys, memory, False)
-            if tf.reduce_sum(y_hat, 1) == self.token2idx["<pad>"]: break
+            if tf.reduce_sum(y_hat, 1) == self.token2idx["<pad>"]:
+                break
 
             _decoder_inputs = tf.concat((decoder_inputs, y_hat), 1)
             ys = (_decoder_inputs, y, y_seqlen, sents2)
-
         # monitor a random sample
         n = tf.random_uniform((), 0, tf.shape(y_hat)[0]-1, tf.int32)
         sent1 = sents1[n]
@@ -181,6 +184,21 @@ class Transformer:
         tf.summary.text("pred", pred)
         tf.summary.text("sent2", sent2)
         summaries = tf.summary.merge_all()
-
         return y_hat, summaries
 
+    def debug(self, xs, ys):
+        decoder_inputs, y, y_seqlen, sents2 = ys
+
+        decoder_inputs = tf.ones((tf.shape(xs[0])[0], 1), tf.int32) * self.token2idx["<s>"]
+        ys = (decoder_inputs, y, y_seqlen, sents2)
+
+        memory, sents1 = self.encode(xs, False)
+        logging.info("Inference graph is being built. Please be patient.")
+        for _ in tqdm(range(self.hp.maxlen2)):
+            logits, y_hat, y, sents2 = self.decode(ys, memory, False)
+            if tf.reduce_sum(y_hat, 1) == self.token2idx["<pad>"]:
+                break
+
+            _decoder_inputs = tf.concat((decoder_inputs, y_hat), 1)
+            ys = (_decoder_inputs, y, y_seqlen, sents2)
+        return ys
