@@ -6,6 +6,12 @@ class Hparams:
 
     # prepro
     parser.add_argument('--vocab_size', default=20970, type=int)
+    parser.add_argument('--use_profile', default=0, type=int)
+
+    # vocabulary
+    parser.add_argument('--use_auto_vocab', default=1, type=int)
+    parser.add_argument('--vocab', default='./transformer/nlptools.vocab',
+                        help="vocabulary file path")
 
     # train
     # files
@@ -20,20 +26,15 @@ class Hparams:
     parser.add_argument('--test', default='./couplet/train/out.100',
                         help="english evaluation unsegmented data")
 
-    # vocabulary
-    parser.add_argument('--use_auto_vocab', default=True)
-    parser.add_argument('--vocab', default='./transformer/nlptools.vocab',
-                        help="vocabulary file path")
-
     # training scheme
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--eval_batch_size', default=64, type=int)
 
     parser.add_argument('--lr', default=0.0003, type=float, help="learning rate")
     parser.add_argument('--warmup_steps', default=4000, type=int)
-    parser.add_argument('--logdir', default="log/1", help="log directory")
+    parser.add_argument('--logdir', default="log/0", help="log directory")
     parser.add_argument('--num_epochs', default=20, type=int)
-    parser.add_argument('--evaldir', default="eval/1", help="evaluation dir")
+    parser.add_argument('--evaldir', default="eval/0", help="evaluation dir")
 
     # model
     parser.add_argument('--d_model', default=512, type=int,

@@ -3,7 +3,6 @@
 # Author: cuiyiwork@foxmail.com
 # Created Time: 24/2/2019 3:28 PM
 import sys
-from transformer.data_load import load_vocab
 
 if sys.version_info[0] == 3:
     unichr = chr
@@ -41,7 +40,9 @@ class Encoder(object):
 
     def get_index_by_char(self, unicode_char):
         char = unicode_char
-        if sys.version_info[0] < 3:
+        if sys.version_info[0] == 3:
+            pass
+        else:
             if not isinstance(char, unicode):
                 char = char.decode("utf-8", "ignore")
 
@@ -129,7 +130,9 @@ class Encoder(object):
 
     def get_filtered_unicode_str(self, unc_str):
         str1 = unc_str
-        if sys.version_info[0] < 3:
+        if sys.version_info[0] == 3:
+            pass
+        else:
             if not isinstance(str1, unicode):
                 str1 = str1.decode("utf-8", "ignore")
         return_str = u""
@@ -160,7 +163,113 @@ class Encoder(object):
             f.close()
 
 
-_encoder = Encoder(extra_num_chars=0, ignore_comma=False, use_default_nlp_symbol=True)
+class Encoder2(object):
+    def __init__(self, start_idx=0, ignore_comma=False, use_default_nlp_symbol=True, extra_chars=None, extra_num_chars=0):
+        if start_idx:
+            self._start_idx = start_idx
+        else:
+            self._start_idx = extra_num_chars
+        self._ignore_comma = ignore_comma
+        self._use_default_nlp_symbol = use_default_nlp_symbol  # 0: <pad>, 1: <unk>, 2: <s>, 3: </s>
+        self._special_symbols = ["<pad>", "<unk>", "<s>", "</s>", "<sep>"]
+        self._extra_chars = extra_chars if isinstance(extra_chars, list) else []
+        self._comma_char = 0x2C
+        self._exception_char = {0x2D: 0,  # "-"
+                                0xFF0C: 1,  # "，"
+                                0x3002: 2,  # "。"
+                                }
+        self._num_char = [0x30, 0x39]
+        self._upeng_char = [0x41, 0x5a]
+        self._loweng_char = [0x61, 0x7a]
+        self._chn_char = [0x4e00, 0x9fa5]
+        self._token2idx = {}
+        self._idx2token = {}
+
+        self._build_dict()
+        if len(self._token2idx) != len(self._idx2token):
+            raise Exception("len(self.token2idx) != len(self.idx2token). "
+                            "Please check if you add some chars "
+                            "that have been already included in the original dict")
+
+    def _build_dict(self):
+        idx = self._start_idx
+
+        if self._use_default_nlp_symbol:
+            for c in self._special_symbols:
+                self._idx2token[idx] = c
+                self._token2idx[c] = idx
+                idx += 1
+
+        for c in self._extra_chars:
+            if sys.version_info[0] == 3:
+                pass
+            else:
+                if not isinstance(c, unicode):
+                    c = c.decode("utf-8", "ignore")
+            self._idx2token[idx] = c
+            self._token2idx[c] = idx
+            idx += 1
+
+        if not self._ignore_comma:
+            self._idx2token[idx] = unichr(self._comma_char)
+            self._token2idx[unichr(self._comma_char)] = idx
+            idx += 1
+
+        for code, offset in self._exception_char.items():
+            self._idx2token[idx + offset] = unichr(code)
+            self._token2idx[unichr(code)] = idx + offset
+        idx += len(self._exception_char)
+
+        for code in list(range(self._num_char[0], self._num_char[1] + 1)) + \
+                list(range(self._upeng_char[0], self._upeng_char[1] + 1)) + \
+                list(range(self._loweng_char[0], self._loweng_char[1] + 1)) + \
+                list(range(self._chn_char[0], self._chn_char[1] + 1)):
+            self._idx2token[idx] = unichr(code)
+            self._token2idx[unichr(code)] = idx
+            idx += 1
+
+    def get_vocab_size(self):
+        return len(self._idx2token)
+
+    def get_index_by_char(self, c):
+        char = c
+        if sys.version_info[0] < 3:
+            if not isinstance(char, unicode):
+                char = char.decode("utf-8", "ignore")
+        return self._token2idx.get(char, -1)
+
+    def get_char_by_index(self, idx):
+        return self._idx2token.get(idx)
+
+    def get_filtered_unicode_str(self, unc_str):
+        str1 = unc_str
+        if sys.version_info[0] < 3:
+            if not isinstance(str1, unicode):
+                str1 = str1.decode("utf-8", "ignore")
+        return_str = u""
+        for char in str1:
+            idx = self.get_index_by_char(char)
+            if -1 != idx:
+                return_str += char
+
+        return return_str
+
+    def get_index_dict(self):
+        return self._token2idx, self._idx2token
+
+    def output_dict(self, file_name="nlptools.vocab"):
+        token2idx, idx2token = self.get_index_dict()
+        with open(file_name, "w") as f:
+            for token, idd in sorted(token2idx.items(), key=lambda _d: _d[1]):
+                str_out = "%s\t%s\n" % (token, idd)
+                if sys.version_info[0] == 2:
+                    str_out = str_out.encode("utf-8")
+                f.write(str_out)
+            f.close()
+
+
+_encoder = Encoder2(extra_num_chars=0, ignore_comma=False, use_default_nlp_symbol=True,
+                    extra_chars=[])
 get_num_vocab = _encoder.get_vocab_size
 get_char_index = _encoder.get_index_by_char
 get_filtered_unicode_str = _encoder.get_filtered_unicode_str

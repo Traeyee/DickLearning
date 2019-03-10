@@ -47,7 +47,8 @@ def get_token_embeddings(vocab_size, num_units, zero_pad=True):
         embeddings = tf.get_variable('weight_mat',
                                    dtype=tf.float32,
                                    shape=(vocab_size, num_units),
-                                   initializer=tf.contrib.layers.xavier_initializer())
+                                   initializer=tf.contrib.layers.xavier_initializer(),
+                                     )
         if zero_pad:
             embeddings = tf.concat((tf.zeros(shape=[1, num_units]),
                                     embeddings[1:, :]), 0)
@@ -300,12 +301,49 @@ def positional_encoding(inputs,
 
         return tf.to_float(outputs)
 
+
 def noam_scheme(init_lr, global_step, warmup_steps=4000.):
-    '''Noam scheme learning rate decay
+    """Noam scheme learning rate decay
     init_lr: initial learning rate. scalar.
     global_step: scalar.
     warmup_steps: scalar. During warmup_steps, learning rate increases
         until it reaches init_lr.
-    '''
+    """
     step = tf.cast(global_step + 1, dtype=tf.float32)
     return init_lr * warmup_steps ** 0.5 * tf.minimum(step * warmup_steps ** -1.5, step ** -0.5)
+
+
+def _dropout_lstm_cell(hparams, train):
+    return tf.nn.rnn_cell.DropoutWrapper(
+      tf.nn.rnn_cell.LSTMCell(hparams.hidden_size),
+      input_keep_prob=1.0 - hparams.dropout * tf.to_float(train))
+
+
+def lstm(inputs, sequence_length, hparams, train, name, initial_state=None):
+    """Adds a stack of LSTM layers on top of input.
+    Args:
+      inputs: The input `Tensor`, shaped `[batch_size, time_steps, hidden_size]`.
+      sequence_length: Lengths of the actual input sequence, excluding padding; a
+          `Tensor` shaped `[batch_size]`.
+      hparams: HParams; hyperparameters.
+      train: bool; `True` when constructing training graph to enable dropout.
+      name: string; Create variable names under this scope.
+      initial_state: tuple of `LSTMStateTuple`s; the initial state of each layer.
+    Returns:
+      A tuple (outputs, states), where:
+        outputs: The output `Tensor`, shaped `[batch_size, time_steps,
+          hidden_size]`.
+        states: A tuple of `LSTMStateTuple`s; the final state of each layer.
+          Bidirectional LSTM returns a concatenation of last forward and backward
+          state, reduced to the original dimensionality.
+    """
+    layers = [_dropout_lstm_cell(hparams, train)
+              for _ in range(hparams.num_hidden_layers)]
+    with tf.variable_scope(name):
+        return tf.nn.dynamic_rnn(
+            tf.nn.rnn_cell.MultiRNNCell(layers),
+            inputs,
+            sequence_length,
+            initial_state=initial_state,
+            dtype=tf.float32,
+            time_major=False)

@@ -34,7 +34,7 @@ xs, ys = iterr.get_next()
 eval_init_op = iterr.make_initializer(eval_batches)  # Create an op, but not run yet
 
 m = Transformer(hp)
-y_hat = m.debug(xs, ys)  # y_hat: elements are indices, a target that can be run
+y_hat, _ = m.debug(xs, ys)  # y_hat: elements are indices, a target that can be run
 
 
 logging.info("# Session")

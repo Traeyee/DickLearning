@@ -9,13 +9,76 @@ Utility functions
 """
 
 import tensorflow as tf
-# from tensorflow.python import pywrap_tensorflow
-# import numpy as np
 import json
-import os, re
+import os
+import re
 import logging
+import time
+# import numpy as np
+from tensorflow.core.framework import device_attributes_pb2
+from tensorflow.python import pywrap_tensorflow
 
-logging.basicConfig(level=logging.INFO)
+
+def list_local_devices(session_config=None):
+    """List the available devices available in the local process.
+
+    Args:
+      session_config: a session config proto or None to use the default config.
+
+    Returns:
+      A list of `DeviceAttribute` protocol buffers.
+    """
+    def _convert(pb_str):
+        m = device_attributes_pb2.DeviceAttributes()
+        m.ParseFromString(pb_str)
+        return m
+
+    return [
+        _convert(s)
+        for s in pywrap_tensorflow.list_devices(session_config=session_config)
+    ]
+
+
+def get_available_gpus():
+    local_device_protos = list_local_devices()
+    return [x.name for x in local_device_protos if x.device_type == 'GPU']
+
+
+def average_gradients(tower_grads):
+    """Calculate the average gradient for each shared variable across all towers.
+    Note that this function provides a synchronization point across all towers.
+    Args:
+        tower_grads: List of lists of (gradient, variable) tuples. The outer list
+            is over individual gradients. The inner list is over the gradient
+            calculation for each tower.
+    Returns:
+         List of pairs of (gradient, variable) where the gradient has been averaged
+         across all towers.
+    """
+    average_grads = []
+    for grad_and_vars in zip(*tower_grads):
+        # Note that each grad_and_vars looks like the following:
+        #   ((grad0_gpu0, var0_gpu0), ... , (grad0_gpuN, var0_gpuN))
+        grads = []
+        for g, _ in grad_and_vars:
+            # Add 0 dimension to the gradients to represent the tower.
+            expanded_g = tf.expand_dims(g, 0)
+
+            # Append on a 'tower' dimension which we will average over below.
+            grads.append(expanded_g)
+
+        # Average over the 'tower' dimension.
+        grad = tf.concat(axis=0, values=grads)
+        grad = tf.reduce_mean(grad, 0)
+
+        # Keep in mind that the Variables are redundant because they are shared
+        # across towers. So .. we will just return the first tower's pointer to
+        # the Variable.
+        v = grad_and_vars[0][1]
+        grad_and_var = (grad, v)
+        average_grads.append(grad_and_var)
+    return average_grads
+
 
 def calc_num_batches(total_num, batch_size):
     """Calculates the number of batches.
@@ -25,6 +88,7 @@ def calc_num_batches(total_num, batch_size):
     Returns
     number of batches, allowing for remainders."""
     return total_num // batch_size + int(total_num % batch_size != 0)
+
 
 def convert_idx_to_token_tensor(inputs, idx2token):
     """Converts int32 tensor to string tensor.
@@ -66,14 +130,12 @@ def postprocess(hypotheses, idx2token):
     Returns
     processed hypotheses
     """
-    logging.info("db2")
     _hypotheses = []
     for h in hypotheses:
         sent = "".join(idx2token[idx] for idx in h)
         sent = sent.split("</s>")[0].strip()
         sent = sent.replace("▁", " ")  # remove bpe symbols
         _hypotheses.append(sent.strip())
-    logging.info("db4")
     return _hypotheses
 
 
@@ -85,10 +147,12 @@ def save_hparams(hparams, path):
     Writes
     hparams as literal dictionary to path.
     """
-    if not os.path.exists(path): os.makedirs(path)
+    if not os.path.exists(path):
+        os.makedirs(path)
     hp = json.dumps(vars(hparams))
     with open(os.path.join(path, "hparams"), 'w') as fout:
         fout.write(hp)
+
 
 def load_hparams(parser, path):
     """Loads hparams and overrides parser
@@ -101,6 +165,7 @@ def load_hparams(parser, path):
     flag2val = json.loads(d)
     for f, v in flag2val.items():
         parser.f = v
+
 
 def save_variable_specs(fpath):
     """Saves information about variables such as
@@ -119,18 +184,33 @@ def save_variable_specs(fpath):
         """
         size = 1
         for d in range(len(shp)):
-            size *=shp[d]
+            size *= shp[d]
         return size
 
     params, num_params = [], 0
     for v in tf.global_variables():
         params.append("{}==={}".format(v.name, v.shape))
         num_params += _get_size(v.shape)
+    tvs = []
+    for tv in tf.trainable_variables():
+        tvs.append(tv.name)
     print("num_params: ", num_params)
     with open(fpath, 'w') as fout:
         fout.write("num_params: {}\n".format(num_params))
         fout.write("\n".join(params))
+        fout.write("\ntrainable variables:\n")
+        fout.write("\n".join(tvs))
+
     logging.info("Variables info has been saved.")
+
+
+def save_operation_specs(fpath):
+    ops = []
+    for op in tf.get_default_graph().get_operations():
+        ops.append("{}==={}".format(op.name, op.type))
+    with open(fpath, 'w') as fout:
+        fout.write("\n".join(ops))
+    logging.info("Operaions info has been saved.")
 
 
 def get_hypotheses(num_batches, num_samples, sess, tensor, dictt, use_profile=False, **kwargs):
@@ -145,19 +225,17 @@ def get_hypotheses(num_batches, num_samples, sess, tensor, dictt, use_profile=Fa
     hypotheses: list of sents
     """
     hypotheses = []
-    logging.info("db1")
     for ith_batch in range(num_batches):
-        logging.info("db11")
+        ts = time.time()
         if use_profile:
             run_metadata = kwargs['run_metadata']
             h = sess.run(tensor, options=kwargs['options'], run_metadata=run_metadata)
             kwargs['profiler'].add_step(step=ith_batch, run_meta=run_metadata)
         else:
             h = sess.run(tensor)
-        logging.info("db12")
+        logging.info("get_hypotheses %sth: %s ", ith_batch, (time.time() - ts))
         hypotheses.extend(h.tolist())
     hypotheses = postprocess(hypotheses, dictt)
-    logging.info(hypotheses)
 
     return hypotheses[:num_samples]
 
@@ -190,7 +268,3 @@ def calc_bleu(ref, translation):
 #     var_to_shape_map = reader.get_variable_to_shape_map()
 #     vars = [v for v in sorted(var_to_shape_map) if filter not in v]
 #     return vars
-
-
-
-
