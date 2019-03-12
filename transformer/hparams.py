@@ -25,6 +25,8 @@ class Hparams:
                         help="english evaluation segmented data")
     parser.add_argument('--test', default='./couplet/train/out.100',
                         help="english evaluation unsegmented data")
+    parser.add_argument('--pb_name', default='default')
+    parser.add_argument('--fine_tune', default=0, type=int)
 
     # training scheme
     parser.add_argument('--batch_size', default=64, type=int)

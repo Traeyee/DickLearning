@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 export CUDA_VISIBLE_DEVICES="2,3"
+# export CUDA_VISIBLE_DEVICES="0,1"
 # export CUDA_VISIBLE_DEVICES="-1"
 
 if [ "$1" = "train" ]; then
