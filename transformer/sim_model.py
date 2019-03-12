@@ -5,7 +5,7 @@
 import tensorflow as tf
 from transformer.model import Transformer
 from transformer.modules import noam_scheme
-from transformer.utils import get_available_gpus, average_gradients
+from transformer.utils import get_available_gpus, average_gradients, get_gradients_by_loss_and_optimizer
 
 
 class SimTransformer(Transformer):
@@ -37,7 +37,7 @@ class SimTransformer(Transformer):
             outputs = tf.identity(outputs, name=name)
         return outputs
 
-    def sim_train(self, xs1, xs2, scores):
+    def _get_prediction(self, xs1, xs2):
         memory1, sents1 = self.encode(xs1, name="xs1")  # (N, T1, d_model)
         memory2, sents2 = self.encode(xs2, name="xs2")
         vec1 = self.seq2vec(memory1, "vec1", True)  # (N, d_model)
@@ -46,34 +46,9 @@ class SimTransformer(Transformer):
         vec2_l2 = tf.reduce_sum(tf.square(vec2), axis=1)
         predictions = tf.reduce_sum(vec1 * vec2, axis=1) / (tf.sqrt(vec1_l2 * vec2_l2))
         predictions = tf.identity(predictions, name="predictions")
+        return predictions
 
-        loss = tf.reduce_sum(tf.squared_difference(predictions, scores), name="loss")
-        global_step = tf.train.get_or_create_global_step()
-        lr = noam_scheme(self.context.lr, global_step, self.context.warmup_steps)
-        optimizer = tf.train.AdamOptimizer(lr)
-
-        # train_op = optimizer.minimize(loss, global_step=global_step)
-        # 对optimizer.minimize进行展开
-        grads_and_vars = optimizer.compute_gradients(loss)
-        vars_with_grad = [v for g, v in grads_and_vars if g is not None]
-        if not vars_with_grad:
-            raise ValueError(
-                "No gradients provided for any variable, check your graph for ops"
-                " that do not support gradients, between variables %s and loss %s." %
-                ([str(v) for _, v in grads_and_vars], loss))
-        train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
-
-        for g, v in grads_and_vars:
-            tf.summary.histogram(v.name, v)
-            tf.summary.histogram(v.name + '_grad', g)
-        tf.summary.scalar('lr', lr)
-        tf.summary.scalar("loss", loss)
-        tf.summary.scalar("global_step", global_step)
-
-        summaries = tf.summary.merge_all()
-        return loss, train_op, global_step, summaries
-
-    def sim_train_multigpu(self, xs1, xs2, scores):
+    def sim_train(self, xs1, xs2, scores):
         global_step = tf.train.get_or_create_global_step()
         lr = noam_scheme(self.context.lr, global_step, self.context.warmup_steps)
         optimizer = tf.train.AdamOptimizer(lr)
@@ -101,13 +76,19 @@ class SimTransformer(Transformer):
                 for i in range(num_gpu):
                     with tf.device("/gpu:%d" % i):
                         with tf.name_scope("tower_%d" % i):
-                            grad, single_loss = self._get_gradients(xs1s[i], xs2s[i], scoress[i], optimizer)
-                            losses.append(single_loss)
+                            predictions = self._get_prediction(xs1s[i], xs2s[i])
+                            # square loss
+                            partial_loss = tf.reduce_sum(tf.squared_difference(predictions, scoress[i]), name="loss")
+                            losses.append(partial_loss)
+                            tf.get_variable_scope().reuse_variables()
+                            grad = get_gradients_by_loss_and_optimizer(partial_loss, optimizer)
                             tower_grads.append(grad)
             loss = tf.reduce_mean(losses)
             grads_and_vars = average_gradients(tower_grads)
         else:
-            grads_and_vars, loss = self._get_gradients(xs1, xs2, scores, optimizer)
+            predictions = self._get_prediction(xs1, xs2)
+            loss = tf.reduce_sum(tf.squared_difference(predictions, scores), name="loss")
+            grads_and_vars = get_gradients_by_loss_and_optimizer(loss, optimizer)
         train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
 
         for g, v in grads_and_vars:
@@ -120,23 +101,7 @@ class SimTransformer(Transformer):
         summaries = tf.summary.merge_all()
         return loss, train_op, global_step, summaries
 
-    def _get_gradients(self, xs1, xs2, scores, optimizer):
-        memory1, sents1 = self.encode(xs1, name="xs1")  # (N, T1, d_model)
-        memory2, sents2 = self.encode(xs2, name="xs2")
-        vec1 = self.seq2vec(memory1, "vec1", True)  # (N, d_model)
-        vec2 = self.seq2vec(memory2, "vec2", True)
-        vec1_l2 = tf.reduce_sum(tf.square(vec1), axis=1)  # (N,)
-        vec2_l2 = tf.reduce_sum(tf.square(vec2), axis=1)
-        predictions = tf.reduce_sum(vec1 * vec2, axis=1) / (tf.sqrt(vec1_l2 * vec2_l2))
-        predictions = tf.identity(predictions, name="predictions")
-
-        loss = tf.reduce_sum(tf.squared_difference(predictions, scores), name="loss")
-        tf.get_variable_scope().reuse_variables()
-        grads_and_vars = optimizer.compute_gradients(loss)
-        vars_with_grad = [v for g, v in grads_and_vars if g is not None]
-        if not vars_with_grad:
-            raise ValueError(
-                "No gradients provided for any variable, check your graph for ops"
-                " that do not support gradients, between variables %s and loss %s." %
-                ([str(v) for _, v in grads_and_vars], loss))
-        return grads_and_vars, loss
+    def get_encodec(self, xs):
+        memory, sents = self.encode(xs, training=False, name="xs")  # (N, T1, d_model)
+        vec = self.seq2vec(memory, "vec", training=False)  # (N, d_model)
+        return vec

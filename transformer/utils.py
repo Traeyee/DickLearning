@@ -80,6 +80,17 @@ def average_gradients(tower_grads):
     return average_grads
 
 
+def get_gradients_by_loss_and_optimizer(loss, optimizer):
+    grads_and_vars = optimizer.compute_gradients(loss)
+    vars_with_grad = [v for g, v in grads_and_vars if g is not None]
+    if not vars_with_grad:
+        raise ValueError(
+            "No gradients provided for any variable, check your graph for ops"
+            " that do not support gradients, between variables %s and loss %s." %
+            ([str(v) for _, v in grads_and_vars], loss))
+    return grads_and_vars
+
+
 def calc_num_batches(total_num, batch_size):
     """Calculates the number of batches.
     total_num: total sample number
@@ -154,7 +165,7 @@ def save_hparams(hparams, path):
         fout.write(hp)
 
 
-def load_hparams(parser, path):
+def load_hparams(hp, path):
     """Loads hparams and overrides parser
     parser: argsparse parser
     path: directory or file where hparams are saved
@@ -164,7 +175,7 @@ def load_hparams(parser, path):
     d = open(os.path.join(path, "hparams"), 'r').read()
     flag2val = json.loads(d)
     for f, v in flag2val.items():
-        parser.f = v
+        hp.__dict__[f] = v
 
 
 def save_variable_specs(fpath):

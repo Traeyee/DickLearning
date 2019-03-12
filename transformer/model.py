@@ -35,6 +35,7 @@ class Transformer:
         # self.token2idx, self.idx2token = load_vocab(hp.vocab)
         self.token2idx, self.idx2token = context.token2idx, context.idx2token
         vocab_size = len(self.token2idx)
+        # 其实这里的d_model可以是其它维度
         self.embeddings = get_token_embeddings(vocab_size, self.context.d_model, zero_pad=True)
 
     def encode(self, xs, training=True, name=None):
@@ -46,6 +47,7 @@ class Transformer:
             x, seqlens, sents1 = xs
 
             # embedding
+            x = tf.identity(x, "input_x")
             enc = tf.nn.embedding_lookup(self.embeddings, x)   # (N, T1, d_model)
             enc *= self.context.d_model**0.5  # scale
 
@@ -104,7 +106,7 @@ class Transformer:
                     # Vanilla attention
                     dec = multihead_attention(queries=dec,
                                               keys=memory,
-                                              values=memory,
+                                              values=memory,  # dec就是为了计算最后的权重
                                               num_heads=self.context.num_heads,
                                               dropout_rate=self.context.dropout_rate,
                                               training=training,
