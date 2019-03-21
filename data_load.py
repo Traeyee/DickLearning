@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 import json
 import tensorflow as tf
-from utils import calc_num_batches
+from transformer.utils import calc_num_batches
 
 
 def load_vocab(vocab_fpath):
@@ -74,10 +74,17 @@ def encode(inp, typee, dictt):
     list of numbers
     """
     inp_str = inp.decode("utf-8")
-    if "x" in typee:
+    if "subword" == typee:  # Newly added, especially for cnn subword
+        tokens = inp_str.split()
+        x = [dictt.get(t, dictt["<unk>"]) for t in tokens]
+        return x
+
+    elif "x" in typee:
         tokens = inp_str.split() + ["</s>"]
-    else:
+    elif "y" in typee:
         tokens = ["<s>"] + inp_str.split() + ["</s>"]
+    else:
+        raise Exception("encode wrong type")
 
     x = [dictt.get(t, dictt["<unk>"]) for t in tokens]
     return x
