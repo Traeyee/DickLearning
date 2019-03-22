@@ -4,42 +4,35 @@
 # Created Time: 6/3/2019 2:59 PM
 import tensorflow as tf
 from data_load import load_vocab
-from modules import noam_scheme, get_token_embeddings, ff, get_subword_embedding
+from modules import noam_scheme, get_token_embeddings, get_subword_embedding
 from utils import get_available_gpus, average_gradients, get_gradients_by_loss_and_optimizer
 
 
-class DSSM:
+class FM:
     def __init__(self, context):
         self.context = context
         self.token2idx, self.idx2token = load_vocab(context.vocab)
         vocab_size = len(self.token2idx)
         # 其实这里的d_model可以是其它维度
-        self.embeddings = get_token_embeddings(vocab_size, self.context.d_ff, zero_pad=False)
+        self.query_embeddings = get_token_embeddings(vocab_size, self.context.d_model, zero_pad=False,
+                                                     name="query_entity")
+        self.answer_embeddings = get_token_embeddings(vocab_size, self.context.d_model, zero_pad=False,
+                                                      name="answer_entity")
 
-    def _unilateral_net(self, x, name, training=True):
-        """
-        :param x: (N, num_entities)
-        :param name:
-        :param training:
-        :return:
-        """
-        with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
-            # [batch_size, seq_length, embedding_size], [vocab_size, embedding_size]
-            embedding = get_subword_embedding(self.embeddings, x)  # (N, num_entities, ff_model)
-            embedding = tf.reduce_mean(embedding, axis=1, name="embedding")  # (N, ff_model)
+    def _get_prediction(self, xs1, xs2, training=True):
+        query_embedding = get_subword_embedding(self.query_embeddings, xs1)  # (N, num_entities, d_model)
+        query_embedding = tf.reduce_sum(query_embedding, axis=1, name="query_embedding")
 
-            embedding = tf.layers.dropout(embedding, self.context.dropout_rate, training=training)
-            embedding = ff(embedding, [self.context.d_ff, self.context.d_ff])
-            final_embedding = tf.sigmoid(tf.layers.dense(embedding, self.context.d_model))
-            final_embedding = tf.identity(final_embedding, name=name+"_embedding")  # (N, num_entities, d_model)
-        return final_embedding
+        answer_embedding = get_subword_embedding(self.answer_embeddings, xs2)  # (N, num_entities, d_model)
+        answer_embedding = tf.reduce_sum(answer_embedding, axis=1, name="answer_embedding")
 
-    def _get_prediction(self, xs1, xs2):
-        vec1 = self._unilateral_net(xs1, "query", True)
-        vec2 = self._unilateral_net(xs2, "answer", True)
-        vec1_l2 = tf.reduce_sum(tf.square(vec1), axis=1)  # (N,)
-        vec2_l2 = tf.reduce_sum(tf.square(vec2), axis=1)
-        predictions = tf.reduce_sum(vec1 * vec2, axis=1) / (tf.sqrt(vec1_l2 * vec2_l2))
+        total_embedding = query_embedding + answer_embedding  # (N, d_model)
+        predictions = tf.reduce_sum(tf.square(total_embedding), axis=1)
+        predictions -= tf.reduce_sum(tf.square(query_embedding), axis=1)
+        predictions -= tf.reduce_sum(tf.square(answer_embedding), axis=1)
+        predictions /= 2.0
+        predictions = tf.sigmoid(predictions)
+
         predictions = tf.identity(predictions, name="predictions")
         return predictions
 
