@@ -12,7 +12,7 @@ if not PY3:
     unicode_type = unicode
 
 
-def check_task_type(task_type):
+def CHECK_TASK_TYPE(task_type):
     assert task_type in ("set2set", "set2sca", "seq2seq", "seq2sca", "set2cls", "seq2cls")
 
 
@@ -27,7 +27,7 @@ class Instance(object):
         :param input2: list, 可为空
         """
         # task_type
-        check_task_type(task_type)
+        CHECK_TASK_TYPE(task_type)
         self.task_type = task_type
         # input1
         assert isinstance(input1, list)

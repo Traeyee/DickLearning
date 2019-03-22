@@ -6,10 +6,17 @@ import json
 import sys
 import tensorflow as tf
 
-from instance import Instance, check_task_type
+from instance import Instance, CHECK_TASK_TYPE
 from utils import calc_num_batches
 
 assert sys.version_info[0] == 3, "基于Python3"
+
+
+def CHECK_VOCAB(dict_vocab):
+    assert "<pad>" in dict_vocab, "Please add <pad> to your vocabulary manually"
+    assert "<unk>" in dict_vocab, "Please add <unk> to your vocabulary manually"
+    assert "<s>" in dict_vocab, "Please add <s> to your vocabulary manually"
+    assert "</s>" in dict_vocab, "Please add </s> to your vocabulary manually"
 
 
 def load_vocab(vocab_fpath):
@@ -25,13 +32,13 @@ def load_vocab(vocab_fpath):
         token2idx = json.loads(vocab_fpath)
         if not isinstance(token2idx, dict):
             raise json.decoder.JSONDecodeError
-        assert "<unk>" in token2idx
+        CHECK_VOCAB(token2idx)
         return token2idx, None
     except json.decoder.JSONDecodeError:
         vocab = [line.split("\t")[0] for line in open(vocab_fpath, 'r').read().splitlines()]
         token2idx = {token: idx for idx, token in enumerate(vocab)}
         idx2token = {idx: token for idx, token in enumerate(vocab)}
-        assert "<unk>" in token2idx, "Please add <unk> to your vocabulary manually"
+        CHECK_VOCAB(token2idx)
         return token2idx, idx2token
 
 
@@ -44,7 +51,7 @@ def load_data(fpath):
 
 
 def input_fn(instances, task_type, num_inputfields, params, vocab_fpath, batch_size, shuffle=False):
-    check_task_type(task_type)
+    CHECK_TASK_TYPE(task_type)
     if task_type.endswith("2sca"):
         target_shape = ()
         target_type = tf.float32
