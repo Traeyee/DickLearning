@@ -12,8 +12,8 @@ from tqdm import tqdm
 from context import Context
 from hparams import Hparams
 from utils import save_hparams, save_variable_specs, save_operation_specs, load_hparams
-from dssm.data_load import get_batch
-from dssm.model import DSSM
+from data_load import get_batch
+from fm.model import FM
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -22,12 +22,23 @@ logging.info("# hparams")
 hparams = Hparams()
 parser = hparams.parser
 hp = parser.parse_args()
+run_type = hp.run_type
+logdir = hp.logdir
+batch_size = hp.batch_size
+num_epochs = hp.num_epochs
+assert hp.run_type in ("new", "continue", "finetune")
+if "continue" == hp.run_type:
+    load_hparams(hp, logdir)
+    batch_size = hp.batch_size
 context = Context(hp)
 
 logging.info("# Prepare train/eval batches")
-logging.info("Use %s for training set", hp.train1)
-train_batches, num_train_batches, num_train_samples = get_batch(hp.train1, hp.maxlen1, hp.maxlen2,
-                                                                context.vocab, hp.batch_size, shuffle=True)
+logging.info("Use %s for training set", hp.train_data)
+params = {"maxlen1": hp.maxlen1, "maxlen2": hp.maxlen2}
+train_batches, num_train_batches, num_train_samples = get_batch(fpath=hp.train_data,
+                                                                task_type="set2sca", num_inputfields=2,
+                                                                params=params, vocab_fpath=context.vocab,
+                                                                batch_size=batch_size, shuffle=True)
 
 # create a iterator of the correct shape and type
 iterr = tf.data.Iterator.from_structure(train_batches.output_types, train_batches.output_shapes)
@@ -36,34 +47,36 @@ x1, x2, score = iterr.get_next()
 # 照抄即可，目前不是很熟悉这些接口
 train_init_op = iterr.make_initializer(train_batches)
 
-m = DSSM(context)
-loss, train_op, global_step, train_summaries = m.train(x1, x2, score)
+model = FM(context)
+loss, train_op, global_step, train_summaries = model.train(x1, x2, score)
 
 logging.info("# Session")
-saver = tf.train.Saver(max_to_keep=hp.num_epochs)
+saver = tf.train.Saver(max_to_keep=num_epochs)
 config = tf.ConfigProto(allow_soft_placement=True)
 with tf.Session(config=config) as sess:
     time_sess = time.time()
-    ckpt = tf.train.latest_checkpoint(hp.logdir)
-    if ckpt is None:
-        save_hparams(hp, hp.logdir)
+    ckpt = tf.train.latest_checkpoint(logdir)
+    if ckpt is None or "new" == run_type:  # 新建
+        save_hparams(hp, logdir)
         logging.info("Initializing from scratch")
         sess.run(tf.global_variables_initializer())
-    else:
+    else:  # continue OR finetune
         saver.restore(sess, ckpt)
-        if hp.fine_tune:
-            save_hparams(hp, hp.logdir)
-        else:
-            load_hparams(hp, hp.logdir)
-    save_variable_specs(os.path.join(hp.logdir, "var_specs"))
-    save_operation_specs(os.path.join(hp.logdir, "op_specs"))
-    f_debug = open(os.path.join(hp.logdir, "debug.txt"), "a")
-    summary_writer = tf.summary.FileWriter(hp.logdir, sess.graph)
+        if "finetune" == hp.run_type:  # finetune
+            save_hparams(hp, logdir)
+        else:  # continue
+            batch_size = hp.batch_size
+
+    save_variable_specs(os.path.join(logdir, "var_specs"))
+    save_operation_specs(os.path.join(logdir, "op_specs"))
+    f_debug = open(os.path.join(logdir, "debug.txt"), "a")
+    summary_writer = tf.summary.FileWriter(logdir, sess.graph)
     if hp.zero_step:
         sess.run(global_step.assign(0))
 
     sess.run(train_init_op)
-    total_steps = hp.num_epochs * num_train_batches
+    total_steps = num_epochs * num_train_batches
+    logging.info("total_steps:%s, num_epochs:%s, num_train_batches:%s", total_steps, num_epochs, num_train_batches)
     _gs = sess.run(global_step)
     logging.info("global_step is stated at %s", _gs)
     t_epoch = time.time()
@@ -83,8 +96,8 @@ with tf.Session(config=config) as sess:
             _loss = sess.run(loss)  # train loss
 
             logging.info("# save models")
-            model_output = "dssm%02dL%.2f" % (epoch, _loss)
-            ckpt_name = os.path.join(hp.logdir, model_output)
+            model_output = "fm%02dL%.2f" % (epoch, _loss)
+            ckpt_name = os.path.join(logdir, model_output)
             saver.save(sess, ckpt_name, global_step=_gs)
             logging.info("after training of {} epochs, {} has been saved.".format(epoch, ckpt_name))
 
@@ -96,7 +109,7 @@ with tf.Session(config=config) as sess:
             t_epoch = time.time()
     summary_writer.close()
     logging.info("Session runs for %s", time.time() - time_sess)
-    graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def, output_node_names=["seq2vec/vec1"])
-    tf.train.write_graph(graph_def, './model', '%s.pb' % model_output, as_text=False)
+    # graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def, output_node_names=["seq2vec/vec1"])
+    # tf.train.write_graph(graph_def, './model', '%s.pb' % model_output, as_text=False)
 f_debug.close()
 logging.info("Done")

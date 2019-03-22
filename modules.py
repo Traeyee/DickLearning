@@ -28,7 +28,7 @@ def ln(inputs, epsilon=1e-8, scope="ln"):
     return outputs
 
 
-def get_token_embeddings(vocab_size, num_units, zero_pad=True):
+def get_token_embeddings(vocab_size, num_units, zero_pad=True, name="shared_weight_matrix"):
     """Constructs token embedding matrix.
     Note that the column of index 0's are set to zeros.
     vocab_size: scalar. V.
@@ -39,7 +39,7 @@ def get_token_embeddings(vocab_size, num_units, zero_pad=True):
     Returns
     weight variable: (V, E)
     """
-    with tf.variable_scope("shared_weight_matrix"):
+    with tf.variable_scope(name):
         embeddings = tf.get_variable('weight_mat',
                                      dtype=tf.float32,
                                      shape=(vocab_size, num_units),

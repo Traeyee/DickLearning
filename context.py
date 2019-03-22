@@ -29,3 +29,5 @@ class Context:
             encoder = Encoder()
             self.token2idx, self.idx2token = encoder.get_index_dict()
             self.vocab = json.dumps(self.token2idx)
+        else:
+            assert hparams.vocab is not None, "Neither use_auto_vocab and vocab cannot be negative"
