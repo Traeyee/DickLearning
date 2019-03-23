@@ -6,13 +6,15 @@ import logging
 import os
 import time
 import math
+import sys
 import tensorflow as tf
 from tqdm import tqdm
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "./.."))
 from context import Context
 from hparams import Hparams
 from utils import save_hparams, save_variable_specs, save_operation_specs, load_hparams
-from dssm.data_load2 import get_batch
+from data_load import get_batch
 from dssm.model import DSSM
 
 logger = logging.getLogger()
@@ -26,15 +28,20 @@ run_type = hp.run_type
 logdir = hp.logdir
 batch_size = hp.batch_size
 num_epochs = hp.num_epochs
+assert hp.run_type in ("new", "continue", "finetune")
 if "continue" == hp.run_type:
     load_hparams(hp, logdir)
     batch_size = hp.batch_size
 context = Context(hp)
 
+assert hp.train_data is not None
 logging.info("# Prepare train/eval batches")
 logging.info("Use %s for training set", hp.train_data)
-train_batches, num_train_batches, num_train_samples = get_batch(hp.train_data, hp.maxlen1, hp.maxlen2,
-                                                                context.vocab, batch_size, shuffle=True)
+params = {"maxlen1": hp.maxlen1, "maxlen2": hp.maxlen2}
+train_batches, num_train_batches, num_train_samples = get_batch(fpath=hp.train_data,
+                                                                task_type="set2sca", num_inputfields=2,
+                                                                params=params, vocab_fpath=context.vocab,
+                                                                batch_size=batch_size, shuffle=True)
 
 # create a iterator of the correct shape and type
 iterr = tf.data.Iterator.from_structure(train_batches.output_types, train_batches.output_shapes)
