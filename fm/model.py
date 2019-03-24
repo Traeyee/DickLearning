@@ -4,8 +4,62 @@
 # Created Time: 6/3/2019 2:59 PM
 import tensorflow as tf
 from data_load import load_vocab
+from base_model import BaseModel
 from modules import noam_scheme, get_token_embeddings, get_subword_embedding
-from utils import get_available_gpus, average_gradients, get_gradients_by_loss_and_optimizer
+from utils import get_available_gpus, average_gradients, get_gradients_by_loss_and_optimizer, \
+    convert_idx_to_token_tensor
+
+
+class FM2(BaseModel):
+    def __init__(self, context):
+        super(FM2, self).__init__(context)
+        self.set_activation(tf.sigmoid)
+
+        self.token2idxs, self.idx2tokens = [], []
+        self.embeddings = []
+        for i, vocab in enumerate(context.vocabs.split(":")):
+            token2idx, idx2token = load_vocab(vocab)
+            self.token2idxs.append(token2idx)
+            self.idx2tokens.append(idx2token)
+            vocab_size = len(token2idx)
+            embedding = get_token_embeddings(vocab_size, context.d_model, zero_pad=False,
+                                                         name="fm_{}".format(context.embedding_name[i]))
+            self.embeddings.append(embedding)
+
+    def _infer(self, inputs):
+        assert len(inputs) == len(self.embeddings)
+
+        fm_inputs = [tf.identity(_input, "fm_input_%s" % _i) for _i, _input in enumerate(inputs)]
+        vecs_emb = [get_subword_embedding(self.embeddings[_i], _input) for _i, _input in enumerate(fm_inputs)]
+        vecs = [tf.reduce_sum(_vec, axis=1) for _vec in vecs_emb]
+        sum_vec = tf.add_n(vecs)
+        inferences = tf.reduce_sum(tf.square(sum_vec), axis=1)
+        for vec in vecs:
+            inferences -= tf.reduce_sum(tf.square(vec), axis=1)
+        inferences /= 2.0
+
+        self._inferences = inferences
+        return inferences
+
+    def _get_loss(self, inputs, targets):
+        inferences = self.infer(inputs)
+        activated_infr = self.activate(inferences)
+        self._outputs = activated_infr
+        loss = tf.reduce_mean(tf.squared_difference(activated_infr, targets), name="loss")
+        return loss
+
+    def eval(self, inputs, targets):
+        inferences = self.infer(inputs)
+        activated_infr = self.activate(inferences)
+
+        from random import random
+        n = int(random() * inferences.shape[0])
+        for i, inputt in enumerate(inputs[n]):
+            tokens = convert_idx_to_token_tensor(inputt, self.idx2tokens)
+            tf.summary.text("input_%s" % i, tokens)
+        tf.summary.text("pred", activated_infr)
+        summaries = tf.summary.merge_all()
+        return activated_infr, summaries
 
 
 class FM:
@@ -20,10 +74,13 @@ class FM:
                                                       name="answer_entity")
 
     def _get_prediction(self, xs1, xs2, training=True):
-        query_embedding = get_subword_embedding(self.query_embeddings, xs1)  # (N, num_entities, d_model)
+        input1 = tf.identity(xs1, "query_indices")
+        input2 = tf.identity(xs2, "answer_indices")
+
+        query_embedding = get_subword_embedding(self.query_embeddings, input1)  # (N, num_entities, d_model)
         query_embedding = tf.reduce_sum(query_embedding, axis=1, name="query_embedding")
 
-        answer_embedding = get_subword_embedding(self.answer_embeddings, xs2)  # (N, num_entities, d_model)
+        answer_embedding = get_subword_embedding(self.answer_embeddings, input2)  # (N, num_entities, d_model)
         answer_embedding = tf.reduce_sum(answer_embedding, axis=1, name="answer_embedding")
 
         total_embedding = query_embedding + answer_embedding  # (N, d_model)
@@ -65,11 +122,11 @@ class FM:
                             grad = get_gradients_by_loss_and_optimizer(partial_loss, optimizer)
                             tower_grads.append(grad)
                 predictions = tf.concat(list_predictions, axis=0)
-            loss = tf.reduce_mean(losses)
+            loss = tf.reduce_mean(losses, name="loss")
             grads_and_vars = average_gradients(tower_grads)
         else:
             predictions = self._get_prediction(xs1, xs2)
-            loss = tf.reduce_sum(tf.squared_difference(predictions, scores), name="loss")
+            loss = tf.reduce_mean(tf.squared_difference(predictions, scores), name="loss")
             grads_and_vars = get_gradients_by_loss_and_optimizer(loss, optimizer)
         train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
 

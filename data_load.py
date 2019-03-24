@@ -6,7 +6,7 @@ import json
 import sys
 import tensorflow as tf
 
-from instance import Instance, CHECK_TASK_TYPE
+from instance import Instance, CHECK_TASK_TYPE, Instance2
 from utils import calc_num_batches
 
 assert sys.version_info[0] == 3, "基于Python3"
@@ -86,6 +86,107 @@ def input_fn(instances, task_type, num_inputfields, params, vocab_fpath, batch_s
     dataset = dataset.padded_batch(batch_size, shapes, paddings).prefetch(1)
 
     return dataset
+
+
+def input_fn2(instances, task_type, input_indices, vocabs, params, batch_size, shuffle=False):
+    CHECK_TASK_TYPE(task_type)
+    # target
+    if task_type.endswith("2sca"):
+        target_shape = ()
+        target_type = tf.float32
+        target_padding = 0.0
+    elif task_type.endswith("2cls"):
+        target_shape = ()
+        target_type = tf.int32
+        target_padding = 0
+    else:
+        target_shape = [None]
+        target_type = tf.int32
+        target_padding = 0
+
+    tf.logging.info("温馨提示：如果是2seq任务请手动添加<s>, </s>")
+    num_input = input_indices.count(",") + 1
+    shapes = tuple([[None] for _ in range(num_input)] + [target_shape])
+    types = tuple([tf.int32 for _ in range(num_input)] + [target_type])
+    paddings = tuple([0 for _ in range(num_input)] + [target_padding])
+    dataset = tf.data.Dataset.from_generator(
+        generator_fn2,
+        output_shapes=shapes,
+        output_types=types,
+        args=(instances, task_type, input_indices, vocabs, json.dumps(params)))
+
+    if shuffle:  # for training
+        dataset = dataset.shuffle(128*batch_size)
+
+    dataset = dataset.repeat()  # iterate forever
+    dataset = dataset.padded_batch(batch_size, shapes, paddings).prefetch(1)
+
+    return dataset
+
+def generator_fn2(instances_of_line, task_typee, str_input_indicess, vocabss, str_params):
+    def bytes2str(unk):
+        ret = unk
+        if isinstance(ret, bytes):
+            ret = ret.decode("utf-8")
+        return ret
+
+    task_type = bytes2str(task_typee)
+
+    str_input_indices = bytes2str(str_input_indicess)
+    input_indices = set([int(_idx) for _idx in str_input_indices.split(",")])
+    num_input = len(input_indices)
+
+    params = json.loads(bytes2str(str_params))
+    accepted_task_type = params.get("accepted_task_type", [])
+    assert type(accepted_task_type) in (list, set, dict)
+    maxlens = params.get("maxlens", 0x3f3f)
+    if not isinstance(maxlens, list):
+        assert isinstance(maxlens, int)
+        tmp = [maxlens] * num_input
+        maxlens = tmp
+
+    token2idxes = []
+    for vocab in bytes2str(vocabss).split(":"):
+        token2idx, _ = load_vocab(vocab)
+        token2idxes.append(token2idx)
+
+    for line in instances_of_line:
+        instance = Instance2.load_instance_from_json(line)
+        # filter
+        if task_type != instance.task_type and instance.task_type not in accepted_task_type:
+            tf.logging.info("Instance filtered[task_type=%s]: %s" % (instance.task_type, line))
+            continue
+        # inputs
+        inputs = []
+        for i, inputt in enumerate(instance.inputs):
+            if i not in input_indices:
+                continue
+            if len(inputt) > maxlens[i]:
+                tf.logging.info("Instance filtered[maxlen_%s]: %s" % (i, line))
+                continue
+            inputt_idx = [token2idx.get(_t, token2idx["<unk>"]) for _t in inputt]
+            if task_type.startswith("set2"):
+                inputt_idx = list(set(inputt_idx))
+            elif task_type.startswith("seq2"):
+                if token2idx["</s>"] != inputt_idx[-1]:
+                    tf.logging.error("seq2任务input没有以</s>结尾")
+            else:
+                raise Exception("Wrong task_type")
+            inputs.append(inputt_idx)
+
+        # target
+        target = instance.target
+        if task_type.endswith("2sca"):
+            target = float(target)
+        elif task_type.endswith("2cls"):
+            target = int(target)
+        else:
+            target_tmp = [token2idx.get(_t, token2idx["<unk>"]) for _t in target]
+            if task_type.endswith("2seq"):
+                if token2idx["</s>"] != target_tmp[-1]:
+                    tf.logging.error("seq2任务target没有以</s>结尾")
+            target = target_tmp
+        yield tuple(inputs + [target])
 
 
 def generator_fn(instances_of_line, task_typee, num_inputfields, str_params, vocab):
@@ -183,5 +284,13 @@ def get_batch(fpath, task_type, num_inputfields, params, vocab_fpath, batch_size
     """More standarlized, recommended"""
     instances = load_data(fpath)
     batches = input_fn(instances, task_type, num_inputfields, params, vocab_fpath, batch_size, shuffle)
+    num_batches = calc_num_batches(len(instances), batch_size)
+    return batches, num_batches, len(instances)
+
+
+def get_batch2(fpath, task_type, input_indices, vocabs, params, batch_size, shuffle=False):
+    """More standarlized, recommended"""
+    instances = load_data(fpath)
+    batches = input_fn2(instances, task_type, input_indices, vocabs, params, batch_size, shuffle)
     num_batches = calc_num_batches(len(instances), batch_size)
     return batches, num_batches, len(instances)
