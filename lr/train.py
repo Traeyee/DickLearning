@@ -13,7 +13,7 @@ from context import Context
 from hparams import Hparams
 from utils import save_hparams, save_variable_specs, save_operation_specs, load_hparams
 from data_load import get_batch2
-from fm.model import FM2
+from lr.model import LR
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -34,7 +34,7 @@ context = Context(hp)
 
 logging.info("# Prepare train/eval batches")
 logging.info("Use %s for training set", hp.train_data)
-params = {"maxlen1": hp.maxlen1, "maxlen2": hp.maxlen2}
+params = {"maxlens": 100}
 train_batches, num_train_batches, num_train_samples = get_batch2(fpath=hp.train_data,
                                                                  task_type="set2sca",
                                                                  input_indices=context.input_indices,
@@ -49,7 +49,7 @@ inputs_and_target = iterr.get_next()
 # 照抄即可，目前不是很熟悉这些接口
 train_init_op = iterr.make_initializer(train_batches)
 
-model = FM2(context)
+model = LR(context)
 loss, train_op, global_step, train_summaries = model.train(inputs=inputs_and_target[:-1], targets=inputs_and_target[-1])
 
 logging.info("# Session")

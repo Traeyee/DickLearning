@@ -12,6 +12,7 @@ class Hparams:
     # vocabulary
     parser.add_argument('--use_auto_vocab', default=0, type=int)
     parser.add_argument('--vocab', help="vocabulary file path")
+    parser.add_argument('--vocabs', help="vocabulary file path. New interface, used for multiple inputs")
 
     # train
     # files
@@ -39,6 +40,7 @@ class Hparams:
     parser.add_argument('--zero_step', default=0, type=int, help="start from global_step=0")
 
     # model
+    parser.add_argument('--inputs', help="input indices of the model")
     parser.add_argument('--d_model', default=512, type=int,
                         help="hidden dimension of encoder/decoder")
     parser.add_argument('--d_ff', default=2048, type=int,

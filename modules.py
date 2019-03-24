@@ -39,7 +39,7 @@ def get_token_embeddings(vocab_size, num_units, zero_pad=True, name="shared_weig
     Returns
     weight variable: (V, E)
     """
-    with tf.variable_scope(name):
+    with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
         embeddings = tf.get_variable('weight_mat',
                                      dtype=tf.float32,
                                      shape=(vocab_size, num_units),

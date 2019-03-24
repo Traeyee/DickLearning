@@ -30,4 +30,15 @@ class Context:
             self.token2idx, self.idx2token = encoder.get_index_dict()
             self.vocab = json.dumps(self.token2idx)
         else:
-            assert hparams.vocab is not None, "Neither use_auto_vocab and vocab cannot be negative"
+            assert hparams.vocab is not None or hparams.vocabs, "Neither use_auto_vocab and vocab cannot be negative"
+
+        # version2
+        self.vocabs = hparams.vocabs
+        self.input_indices = hparams.inputs
+        self.embedding_name = None
+        if self.vocabs or self.input_indices:
+            assert self.vocabs.count(":") == self.input_indices.count(",")
+            self.embedding_name = ["input_embedding_%s" % _i for _i in self.input_indices.split(",")]
+
+    def set_vocabs(self, vocabs):
+        self.vocabs = vocabs
