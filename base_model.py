@@ -2,26 +2,30 @@
 # -*- coding: utf-8 -*-
 # Author: cuiyiwork@foxmail.com
 # Created Time: 24 March 2019 14:46
+import logging
 import tensorflow as tf
 from abc import abstractmethod
 
-from modules import noam_scheme
+from modules import noam_scheme, get_token_embeddings
 from utils import get_available_gpus, average_gradients, get_gradients_by_loss_and_optimizer
+from data_load import load_vocab
 
 
 class BaseModel:
-    def __init__(self, context, name="model"):
+    def __init__(self, context, name="base"):
         self._context = context
         self._name = name
-        self.embeddings = None
 
         self._inferences = None
         self._outputs = None
         self._activation = None
 
-    @abstractmethod
-    def _infer(self, inputs):
-        pass
+        self._embeddings = context.embed_token_idx[0]
+        self._token2idxs = context.embed_token_idx[1]
+        self._idx2tokens = context.embed_token_idx[2]
+
+        self._embedding_dim = None
+        self._init_embeddings()
 
     @abstractmethod
     def eval(self, inputs, targets):
@@ -29,14 +33,19 @@ class BaseModel:
         pass
 
     @abstractmethod
+    def _infer(self, inputs):
+        pass
+
+    @abstractmethod
     def _get_loss(self, inputs, targets):
         return 0.0
 
     def infer(self, inputs):
-        inferences = self._infer(inputs)
-        inferences = tf.identity(inferences, "inferences")
+        named_inputs = [tf.identity(_input, "%s_input_%s" % (self._name, _i)) for _i, _input in enumerate(inputs)]
+        inferences = self._infer(named_inputs)
+        inferences = tf.identity(inferences, "%s_inferences" % self._name)
         self._inferences = inferences
-        self._outputs = self.activate(inferences)
+        self._outputs = tf.identity(self.activate(inferences), "%s_outputs" % self._name)
         return inferences
 
     def train(self, inputs, targets):
@@ -100,4 +109,46 @@ class BaseModel:
         return self._name
 
     def set_embeddings(self, embeddings):
-        self.embeddings = embeddings
+        self._embeddings = embeddings
+
+    def get_embed_token_idx(self):
+        return self._embeddings, self._token2idxs, self._idx2tokens
+
+    def get_inference_op_name(self):
+        return self._inferences.name
+
+    def _init_embeddings(self):
+        if self._embeddings is None:
+            if self._embedding_dim is None and self._context.embedding_dims is None:
+                logging.info("%s embedding is not initialized", self._name)
+                return
+            logging.info("%s embedding is being initialized", self._name)
+            self._embeddings = []
+            self._token2idxs = []
+            self._idx2tokens = []
+            cnt = 0
+            for i, vocab in enumerate(self._context.vocabs.split(":")):
+                if self._context.embedded_indices is not None:
+                    if i not in self._context.embedded_indices:
+                        continue
+                token2idx, idx2token = load_vocab(vocab)
+                self._token2idxs.append(token2idx)
+                self._idx2tokens.append(idx2token)
+                vocab_size = len(token2idx)
+                dim = self._embedding_dim
+                if self._context.embedding_dims is not None:
+                    dim = self._context.embedding_dims[cnt]
+                assert dim is not None
+                embedding = get_token_embeddings(vocab_size, dim, zero_pad=False,
+                                                 name="{}_{}".format(self._name, self._context.embedding_name[i]))
+                self._embeddings.append(embedding)
+                cnt += 1
+            logging.info("%s initialized %s embeddings", self._name, cnt)
+
+        assert self._token2idxs is not None and self._idx2tokens is not None
+        assert len(self._embeddings) == len(self._token2idxs) and len(self._token2idxs) == len(self._idx2tokens)
+        for i in range(len(self._embeddings)):
+            assert self._embeddings[i].shape[0] == len(self._token2idxs[i]), \
+                "%s != %s" % (self._embeddings[i].shape[0], len(self._token2idxs[i]))
+            assert len(self._token2idxs[i]) == len(self._idx2tokens[i]), \
+                "%s != %s" % (len(self._token2idxs[i]), len(self._idx2tokens[i]))

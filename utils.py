@@ -101,8 +101,8 @@ def convert_idx_to_token_tensor(inputs, idx2token):
     Returns
     1d string tensor.
     """
-    def my_func(inputs):
-        return " ".join(idx2token[elem] for elem in inputs)
+    def my_func(inputs_):
+        return " ".join(idx2token[elem] for elem in inputs_)
 
     return tf.py_func(my_func, [inputs], tf.string)
 

@@ -6,6 +6,7 @@ class Hparams:
 
     # run options
     parser.add_argument('--run_type', default="continue", help="new/continue/finetune")
+    parser.add_argument('--task_type')
     parser.add_argument('--use_profile', default=0, type=int)
     parser.add_argument('--logdir', default="log/0", help="log directory")  # crucial
 
@@ -17,6 +18,7 @@ class Hparams:
     # train
     # files
     parser.add_argument('--train_data')
+    parser.add_argument('--eval_data')
     parser.add_argument('--train1', help="german training segmented data")
     parser.add_argument('--train2', default='./couplet/train/out.10000',
                         help="english training segmented data")

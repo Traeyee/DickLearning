@@ -15,7 +15,7 @@ from utils import save_hparams, save_variable_specs, save_operation_specs, load_
 from data_load import get_batch2
 
 
-def train_template(class_model):
+def train_template(class_model, shuffle=True):  # 大数据集耗时请关掉shuffle
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
@@ -27,21 +27,32 @@ def train_template(class_model):
     logdir = hp.logdir
     batch_size = hp.batch_size
     num_epochs = hp.num_epochs
+    task_type = hp.task_type
     assert hp.run_type in ("new", "continue", "finetune")
     if "continue" == hp.run_type:
         load_hparams(hp, logdir)
         batch_size = hp.batch_size
+        if task_type is not None:
+            assert task_type == hp.task_type
+        task_type = hp.task_type
+    assert task_type is not None
     context = Context(hp)
-
     logging.info("# Prepare train/eval batches")
     logging.info("Use %s for training set", hp.train_data)
+    logging.info("Use %s for evaluation set", hp.eval_data)
     params = {"maxlens": 100}
-    train_batches, num_train_batches, num_train_samples = get_batch2(fpath=hp.train_data,
-                                                                     task_type="set2sca",
+    eval_batches, num_eval_batches, num_eval_samples = get_batch2(fpath=hp.eval_data,
+                                                                     task_type=task_type,
                                                                      input_indices=context.input_indices,
                                                                      vocabs=context.vocabs,
                                                                      params=params,
-                                                                     batch_size=batch_size, shuffle=True)
+                                                                     batch_size=batch_size, shuffle=False)
+    train_batches, num_train_batches, num_train_samples = get_batch2(fpath=hp.train_data,
+                                                                     task_type=task_type,
+                                                                     input_indices=context.input_indices,
+                                                                     vocabs=context.vocabs,
+                                                                     params=params,
+                                                                     batch_size=batch_size, shuffle=shuffle)
 
     # create a iterator of the correct shape and type
     iterr = tf.data.Iterator.from_structure(train_batches.output_types, train_batches.output_shapes)
@@ -49,9 +60,11 @@ def train_template(class_model):
 
     # 照抄即可，目前不是很熟悉这些接口
     train_init_op = iterr.make_initializer(train_batches)
+    eval_init_op = iterr.make_initializer(eval_batches)
     model = class_model(context)
     loss, train_op, global_step, train_summaries = model.train(inputs=inputs_and_target[:-1], targets=inputs_and_target[-1])
-    inference_name = model.get_inference_node_name()
+    eval_ouputs, eval_summaries = model.eval(inputs=inputs_and_target[:-1], targets=inputs_and_target[-1])
+    inference_name = model.get_inference_op_name()
     logging.info("inference_node_name:%s" % inference_name)
 
     logging.info("# Session")
@@ -95,14 +108,20 @@ def train_template(class_model):
 
             if _gs and _gs % num_train_batches == 0:
                 logging.info("epoch {} is done".format(epoch))
-                _loss = sess.run(loss)  # train loss
 
+                # train loss
+                _loss = sess.run(loss)
+                # eval
+                logging.info("# eval evaluation")
+                _, _eval_summaries = sess.run([eval_init_op, eval_summaries])
+                summary_writer.add_summary(_eval_summaries, _gs)
+                # save checkpoint
                 logging.info("# save models")
                 model_output = "model%02dL%.2f" % (epoch, _loss)
                 ckpt_name = os.path.join(logdir, model_output)
                 saver.save(sess, ckpt_name, global_step=_gs)
                 logging.info("after training of {} epochs, {} has been saved.".format(epoch, ckpt_name))
-
+                # proceed to next epoch
                 logging.info("# fall back to train mode")
                 ts = time.time()
                 sess.run(train_init_op)
@@ -111,7 +130,51 @@ def train_template(class_model):
                 t_epoch = time.time()
         summary_writer.close()
         logging.info("Session runs for %s", time.time() - time_sess)
-        graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def, output_node_names=[inference_name])
+        # save to pb
+        inference_node_name = inference_name[:inference_name.find(":")]
+        graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def,
+                                                                 output_node_names=[inference_node_name])
         tf.train.write_graph(graph_def, logdir, '%s.pb' % model_output, as_text=False)
     f_debug.close()
     logging.info("Done")
+
+
+def export_pb_template(class_model):
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = "-1"
+
+    logging.info("# hparams")
+    hparams = Hparams()
+    parser = hparams.parser
+    hp = parser.parse_args()
+    load_hparams(hp, hp.logdir)
+    context = Context(hp)
+
+    params = {"maxlens": 0x3f3f}
+    eval_batches, num_eval_batches, num_eval_samples = get_batch2(fpath=hp.eval_data,
+                                                                  task_type=hp.task_type,
+                                                                  input_indices=context.input_indices,
+                                                                  vocabs=context.vocabs,
+                                                                  params=params,
+                                                                  batch_size=hp.batch_size, shuffle=True)
+
+    # create a iterator of the correct shape and type
+    iterr = tf.data.Iterator.from_structure(eval_batches.output_types, eval_batches.output_shapes)
+    inputs_and_target = iterr.get_next()
+
+    model = class_model(context)
+    _ = model.eval(inputs_and_target[:-1], inputs_and_target[-1])
+    inference_name = model.get_inference_op_name()
+    logging.info("inference_node_name:%s" % inference_name)
+
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        ckpt = tf.train.latest_checkpoint(hp.logdir)
+        saver.restore(sess, ckpt)
+        inference_node_name = inference_name[:inference_name.find(":")]
+        graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def,
+                                                                 output_node_names=[inference_node_name])
+        tf.train.write_graph(graph_def, './model', '%s.pb' % hp.pb_name, as_text=False)
+        save_operation_specs(os.path.join("./model", '%s.ops' % hp.pb_name))
