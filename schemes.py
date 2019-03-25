@@ -51,6 +51,8 @@ def train_template(class_model):
     train_init_op = iterr.make_initializer(train_batches)
     model = class_model(context)
     loss, train_op, global_step, train_summaries = model.train(inputs=inputs_and_target[:-1], targets=inputs_and_target[-1])
+    inference_name = model.get_inference_node_name()
+    logging.info("inference_node_name:%s" % inference_name)
 
     logging.info("# Session")
     saver = tf.train.Saver(max_to_keep=num_epochs)
@@ -109,7 +111,7 @@ def train_template(class_model):
                 t_epoch = time.time()
         summary_writer.close()
         logging.info("Session runs for %s", time.time() - time_sess)
-        graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def, output_node_names=["inferences"])
+        graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def, output_node_names=[inference_name])
         tf.train.write_graph(graph_def, logdir, '%s.pb' % model_output, as_text=False)
     f_debug.close()
     logging.info("Done")

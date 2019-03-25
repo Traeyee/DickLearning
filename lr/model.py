@@ -33,7 +33,6 @@ class LR(BaseModel):
         logits = [tf.reduce_sum(_weight, axis=1) for _weight in weights]  # [[batch_size, 1], [batch_size, 1]...]
         inferences = tf.add_n(logits)  # [batch_size, 1]
         inferences = tf.squeeze(inferences, axis=1)
-        self._inferences = inferences
         return inferences
 
     def _get_loss(self, inputs, targets):
@@ -53,7 +52,6 @@ class LR(BaseModel):
             max(x, 0) - x * z + log(1 + exp(-abs(x)))
         """
         inferences = self.infer(inputs)
-        self._outputs = self.activate(inferences)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=targets, logits=inferences)
         loss = tf.reduce_mean(loss)
         return loss

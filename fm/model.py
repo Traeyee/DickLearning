@@ -37,14 +37,11 @@ class FM2(BaseModel):
         for vec in vecs:
             inferences -= tf.reduce_sum(tf.square(vec), axis=1)
         inferences /= 2.0
-
-        self._inferences = inferences
         return inferences
 
     def _get_loss(self, inputs, targets):
         inferences = self.infer(inputs)
         activated_infr = self.activate(inferences)
-        self._outputs = activated_infr
         loss = tf.reduce_mean(tf.squared_difference(activated_infr, targets), name="loss")
         return loss
 

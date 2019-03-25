@@ -12,7 +12,7 @@ cd ${dirr}/.
 if [[ "$1" = "train" ]]; then
     shift
     args="$@"
-    python example.py --d_model 128 ${args}
+    python3 example.py --d_model 128 ${args}
 elif [[ "$1" = "infer" ]]; then
     exit 1
 elif [[ "$1" = "debug" ]]; then
