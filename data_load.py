@@ -80,7 +80,7 @@ def input_fn(instances, task_type, num_inputfields, params, vocab_fpath, batch_s
         args=(instances, task_type, num_inputfields, json.dumps(params), vocab_fpath))
 
     if shuffle:  # for training
-        dataset = dataset.shuffle(128*batch_size)
+        dataset = dataset.shuffle(2 * batch_size)
 
     dataset = dataset.repeat()  # iterate forever
     dataset = dataset.padded_batch(batch_size, shapes, paddings).prefetch(1)
