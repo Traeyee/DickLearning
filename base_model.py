@@ -35,7 +35,8 @@ class BaseModel:
     def infer(self, inputs):
         inferences = self._infer(inputs)
         inferences = tf.identity(inferences, "inferences")
-        self._outputs = inferences
+        self._inferences = inferences
+        self._outputs = self.activate(inferences)
         return inferences
 
     def train(self, inputs, targets):
@@ -74,6 +75,8 @@ class BaseModel:
         train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
 
         for g, v in grads_and_vars:
+            if g is None:  # 无梯度
+                continue
             tf.summary.histogram(v.name, v)
             tf.summary.histogram(v.name + '_grad', g)
         tf.summary.scalar("pred_avg", tf.reduce_mean(self._outputs))

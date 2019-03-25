@@ -32,8 +32,10 @@ class EgModel(BaseModel):
     def _get_loss(self, inputs, targets):
         inferences = self.infer(inputs)
         activated_infr = self.activate(inferences)
-        self._outputs = activated_infr
         loss = tf.reduce_mean(tf.squared_difference(activated_infr, targets), name="loss")
         return loss
+
+    def get_inference_node_name(self):
+        return self._inferences.name
 
 train_template(EgModel)
