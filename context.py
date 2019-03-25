@@ -39,6 +39,9 @@ class Context:
         if self.vocabs or self.input_indices:
             assert self.vocabs.count(":") == self.input_indices.count(",")
             self.embedding_name = ["input_embedding_%s" % _i for _i in self.input_indices.split(",")]
+        self.embed_token_idx = (None, None, None)  # 用已有的embedding初始化模型
+        self.embedding_dims = None  # 指定每个embedding的dim
+        self.embedded_indices = None  # 指定只对哪些vocab进行embedding
 
     def set_vocabs(self, vocabs):
         self.vocabs = vocabs

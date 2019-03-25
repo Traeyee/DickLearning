@@ -8,7 +8,7 @@ dirr=`dirname $0`
 cd ${dirr}/..
 
 # template:
-# bash fm/run.sh train --logdir log/fm/0 --run_type new --train_data data/fm/entity_pair.20k.inst --inputs 0,1 --vocabs vocab/reserved_entities.txt:vocab/reserved_entities.txt --batch_size 128 --lr 0.006 --warmup_steps 100
+# bash fm/run.sh train --logdir log/fm/0 --run_type new --task_type set2sca --train_data data/fm/entity_pair.20k.inst --eval_data entity_pair.5k --inputs 0,1 --vocabs vocab/reserved_entities.txt:vocab/reserved_entities.txt --batch_size 128 --lr 0.006 --warmup_steps 100
 if [[ "$1" = "train" ]]; then
     shift
     args="$@"
