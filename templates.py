@@ -12,10 +12,10 @@ from tqdm import tqdm
 from context import Context
 from hparams import Hparams
 from utils import save_hparams, save_variable_specs, save_operation_specs, load_hparams
-from data_load import get_batch2
+from data_load import get_batch
 
 
-def train_template(class_model, shuffle=True):  # 大数据集耗时请关掉shuffle
+def train_template(class_model, shuffle=True, save_model=True):  # 大数据集耗时请关掉shuffle，调参请关掉save_model
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
@@ -40,19 +40,18 @@ def train_template(class_model, shuffle=True):  # 大数据集耗时请关掉shu
     logging.info("# Prepare train/eval batches")
     logging.info("Use %s for training set", hp.train_data)
     logging.info("Use %s for evaluation set", hp.eval_data)
-    params = {"maxlens": 100}
-    eval_batches, num_eval_batches, num_eval_samples = get_batch2(fpath=hp.eval_data,
-                                                                     task_type=task_type,
-                                                                     input_indices=context.input_indices,
-                                                                     vocabs=context.vocabs,
-                                                                     params=params,
-                                                                     batch_size=batch_size, shuffle=False)
-    train_batches, num_train_batches, num_train_samples = get_batch2(fpath=hp.train_data,
-                                                                     task_type=task_type,
-                                                                     input_indices=context.input_indices,
-                                                                     vocabs=context.vocabs,
-                                                                     params=params,
-                                                                     batch_size=batch_size, shuffle=shuffle)
+    eval_batches, num_eval_batches, num_eval_samples = get_batch(fpath=hp.eval_data,
+                                                                 task_type=task_type,
+                                                                 input_indices=context.input_indices,
+                                                                 vocabs=context.vocabs,
+                                                                 context=context,
+                                                                 batch_size=batch_size, shuffle=False)
+    train_batches, num_train_batches, num_train_samples = get_batch(fpath=hp.train_data,
+                                                                    task_type=task_type,
+                                                                    input_indices=context.input_indices,
+                                                                    vocabs=context.vocabs,
+                                                                    context=context,
+                                                                    batch_size=batch_size, shuffle=shuffle)
 
     # create a iterator of the correct shape and type
     iterr = tf.data.Iterator.from_structure(train_batches.output_types, train_batches.output_shapes)
@@ -115,12 +114,13 @@ def train_template(class_model, shuffle=True):  # 大数据集耗时请关掉shu
                 logging.info("# eval evaluation")
                 _, _eval_summaries = sess.run([eval_init_op, eval_summaries])
                 summary_writer.add_summary(_eval_summaries, _gs)
-                # save checkpoint
-                logging.info("# save models")
-                model_output = "model%02dL%.2f" % (epoch, _loss)
-                ckpt_name = os.path.join(logdir, model_output)
-                saver.save(sess, ckpt_name, global_step=_gs)
-                logging.info("after training of {} epochs, {} has been saved.".format(epoch, ckpt_name))
+                if save_model:
+                    # save checkpoint
+                    logging.info("# save models")
+                    model_output = "model%02dL%.2f" % (epoch, _loss)
+                    ckpt_name = os.path.join(logdir, model_output)
+                    saver.save(sess, ckpt_name, global_step=_gs)
+                    logging.info("after training of {} epochs, {} has been saved.".format(epoch, ckpt_name))
                 # proceed to next epoch
                 logging.info("# fall back to train mode")
                 ts = time.time()
@@ -130,11 +130,12 @@ def train_template(class_model, shuffle=True):  # 大数据集耗时请关掉shu
                 t_epoch = time.time()
         summary_writer.close()
         logging.info("Session runs for %s", time.time() - time_sess)
-        # save to pb
-        inference_node_name = inference_name[:inference_name.find(":")]
-        graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def,
-                                                                 output_node_names=[inference_node_name])
-        tf.train.write_graph(graph_def, logdir, '%s.pb' % model_output, as_text=False)
+        if save_model:
+            # save to pb
+            inference_node_name = inference_name[:inference_name.find(":")]
+            graph_def = tf.graph_util.convert_variables_to_constants(sess, sess.graph_def,
+                                                                     output_node_names=[inference_node_name])
+            tf.train.write_graph(graph_def, logdir, '%s.pb' % model_output, as_text=False)
     f_debug.close()
     logging.info("Done")
 
@@ -153,12 +154,12 @@ def export_pb_template(class_model):
     context = Context(hp)
 
     params = {"maxlens": 0x3f3f}
-    eval_batches, num_eval_batches, num_eval_samples = get_batch2(fpath=hp.eval_data,
-                                                                  task_type=hp.task_type,
-                                                                  input_indices=context.input_indices,
-                                                                  vocabs=context.vocabs,
-                                                                  params=params,
-                                                                  batch_size=hp.batch_size, shuffle=True)
+    eval_batches, num_eval_batches, num_eval_samples = get_batch(fpath=hp.eval_data,
+                                                                 task_type=hp.task_type,
+                                                                 input_indices=context.input_indices,
+                                                                 vocabs=context.vocabs,
+                                                                 context=params,
+                                                                 batch_size=hp.batch_size, shuffle=True)
 
     # create a iterator of the correct shape and type
     iterr = tf.data.Iterator.from_structure(eval_batches.output_types, eval_batches.output_shapes)

@@ -42,6 +42,12 @@ class Context:
         self.embed_token_idx = (None, None, None)  # 用已有的embedding初始化模型
         self.embedding_dims = None  # 指定每个embedding的dim
         self.embedded_indices = None  # 指定只对哪些vocab进行embedding
+        self.maxlens = []
+        if hparams.maxlens:
+            for maxlen in hparams.maxlens.split(","):
+                self.maxlens.append(int(maxlen))
+        self.loss_func = hparams.loss_func
+        self.d_imitate = hparams.d_imitate
 
     def set_vocabs(self, vocabs):
         self.vocabs = vocabs

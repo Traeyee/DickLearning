@@ -29,6 +29,7 @@ class Hparams:
     parser.add_argument('--test', default='./couplet/train/out.100',
                         help="english evaluation unsegmented data")
     parser.add_argument('--pb_name', default='default')
+    parser.add_argument('--loss_func', default='default')
 
     # training scheme
     parser.add_argument('--batch_size', default=64, type=int)
@@ -51,6 +52,7 @@ class Hparams:
                         help="number of encoder/decoder blocks")
     parser.add_argument('--num_heads', default=8, type=int,
                         help="number of attention heads")
+    parser.add_argument('--maxlens', type=str, help="maximum lengths of every inputs")  # new definition
     parser.add_argument('--maxlen1', default=100, type=int,
                         help="maximum length of a source sequence")
     parser.add_argument('--maxlen2', default=100, type=int,
@@ -58,6 +60,8 @@ class Hparams:
     parser.add_argument('--dropout_rate', default=0.3, type=float)
     parser.add_argument('--smoothing', default=0.1, type=float,
                         help="label smoothing rate")
+    parser.add_argument('--d_imitate', type=int,
+                        help="size of model embedding which the current model is imitating")
 
     # test
     parser.add_argument('--test1', default='iwslt2016/segmented/test.de.bpe',

@@ -27,22 +27,27 @@ class BaseModel:
         self._embedding_dim = None
         self._init_embeddings()
 
+        self._loss_func_dict = {"default": self._get_loss}
+
     @abstractmethod
     def eval(self, inputs, targets):
-        """每个模型的eval目标不一样"""
+        """每个模型的eval关心的metrics不一样"""
         pass
 
     @abstractmethod
-    def _infer(self, inputs):
+    def _infer(self, inputs, training):
         pass
 
     @abstractmethod
     def _get_loss(self, inputs, targets):
+        """默认loss函数"""
         return 0.0
 
-    def infer(self, inputs):
+    def infer(self, inputs, training=False, infer=None):
+        if infer is None:
+            infer = self._infer
         named_inputs = [tf.identity(_input, "%s_input_%s" % (self._name, _i)) for _i, _input in enumerate(inputs)]
-        inferences = self._infer(named_inputs)
+        inferences = infer(named_inputs, training=training)
         inferences = tf.identity(inferences, "%s_inferences" % self._name)
         self._inferences = inferences
         self._outputs = tf.identity(self.activate(inferences), "%s_outputs" % self._name)
@@ -54,6 +59,7 @@ class BaseModel:
         optimizer = tf.train.AdamOptimizer(lr)
         gpus = get_available_gpus()
 
+        loss_func = self._loss_func_dict.get(self._context.loss_func, self._get_loss)
         if gpus:
             num_gpu = len(gpus)
             assert self._context.hparams.batch_size % num_gpu == 0
@@ -71,7 +77,7 @@ class BaseModel:
                 for i in range(num_gpu):
                     with tf.device("/gpu:%d" % i):
                         with tf.name_scope("tower_%d" % i):
-                            partial_loss = self._get_loss(partial_inputs[i], targetses[i])
+                            partial_loss = loss_func(partial_inputs[i], targetses[i])
                             losses.append(partial_loss)
                             tf.get_variable_scope().reuse_variables()
                             grad = get_gradients_by_loss_and_optimizer(partial_loss, optimizer)
@@ -79,7 +85,7 @@ class BaseModel:
             loss = tf.reduce_mean(losses)
             grads_and_vars = average_gradients(tower_grads)
         else:
-            loss = tf.reduce_mean(self._get_loss(inputs, targets))
+            loss = tf.reduce_mean(loss_func(inputs, targets))
             grads_and_vars = get_gradients_by_loss_and_optimizer(loss, optimizer)
         train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
 
@@ -145,10 +151,9 @@ class BaseModel:
                 cnt += 1
             logging.info("%s initialized %s embeddings", self._name, cnt)
 
+        # CHECK
         assert self._token2idxs is not None and self._idx2tokens is not None
         assert len(self._embeddings) == len(self._token2idxs) and len(self._token2idxs) == len(self._idx2tokens)
         for i in range(len(self._embeddings)):
             assert self._embeddings[i].shape[0] == len(self._token2idxs[i]), \
                 "%s != %s" % (self._embeddings[i].shape[0], len(self._token2idxs[i]))
-            assert len(self._token2idxs[i]) == len(self._idx2tokens[i]), \
-                "%s != %s" % (len(self._token2idxs[i]), len(self._idx2tokens[i]))

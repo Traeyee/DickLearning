@@ -6,4 +6,4 @@ from templates import train_template
 from fm.model import FM
 
 
-train_template(FM, shuffle=False)
+train_template(FM, shuffle=True)

@@ -16,7 +16,7 @@ class FM(BaseModel):
 
         self._init_embeddings()
 
-    def _infer(self, inputs):
+    def _infer(self, inputs, training):
         assert len(inputs) == len(self._embeddings)
 
         vecs_emb = [get_subword_embedding(self._embeddings[_i], _input) for _i, _input in enumerate(inputs)]
@@ -29,7 +29,7 @@ class FM(BaseModel):
         return inferences
 
     def _get_loss(self, inputs, targets):
-        inferences = self.infer(inputs)
+        inferences = self.infer(inputs, training=True)
         activated_infr = self.activate(inferences)
         loss = tf.reduce_mean(tf.squared_difference(activated_infr, targets), name="loss")
         return loss
