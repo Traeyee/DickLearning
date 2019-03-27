@@ -16,7 +16,7 @@ class LR(BaseModel):
 
         self._init_embeddings()
 
-    def _infer(self, inputs):
+    def _infer(self, inputs, training):
         assert len(inputs) == len(self._embeddings)
 
         # [[batch_size, set_length, 1], [batch_size, set_length, 1]...]
@@ -42,7 +42,7 @@ class LR(BaseModel):
         Hence, to ensure stability and avoid overflow, the implementation uses this equivalent formulation
             max(x, 0) - x * z + log(1 + exp(-abs(x)))
         """
-        inferences = self.infer(inputs)
+        inferences = self.infer(inputs, training=True)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=targets, logits=inferences)
         loss = tf.reduce_mean(loss)
         return loss
