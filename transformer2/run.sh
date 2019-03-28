@@ -2,9 +2,9 @@
 # Author: cuiyiwork@foxmail.com
 # Created Time: 26 March 2019 16:30
 
-# export CUDA_VISIBLE_DEVICES="2,3"
+export CUDA_VISIBLE_DEVICES="2,3"
 # export CUDA_VISIBLE_DEVICES="0,1"
-export CUDA_VISIBLE_DEVICES="-1"
+# export CUDA_VISIBLE_DEVICES="-1"
 
 dirr=`dirname $0`
 cd ${dirr}/..
