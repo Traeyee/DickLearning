@@ -107,7 +107,7 @@ def input_fn(instances, task_type, input_indices, vocabs, context, batch_size, s
     # 要从context传递的参数从这里添加, tf.data.Dataset.from_generator不允许传递customized对象
     params = {"maxlens": context.maxlens}
 
-    dataset = tf.data.Dataset.from_generator(
+    dataset = tf.data.Dataset.from_generator(  # TODO:  尝试msgpack，减少内存占用
         generator_fn,
         output_shapes=shapes,
         output_types=types,

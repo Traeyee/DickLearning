@@ -6,4 +6,4 @@ from templates import train_template
 from transformer2.model import Transformer
 
 
-train_template(Transformer, shuffle=False, save_model=False)
+train_template(Transformer, shuffle=False, save_model=True)
